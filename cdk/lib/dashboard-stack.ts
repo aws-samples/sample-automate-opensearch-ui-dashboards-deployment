@@ -8,6 +8,7 @@ import { Construct } from 'constructs';
 
 interface OpenSearchDashboardStackProps extends cdk.StackProps {
   masterUserArn?: string;
+  enableVpc?: string;
 }
 
 export class OpenSearchDashboardStack extends cdk.Stack {
@@ -21,11 +22,12 @@ export class OpenSearchDashboardStack extends cdk.Stack {
     // Domain name used in multiple places
     const domainName = `data-source-demo`;
 
-    // VPC to place the OpenSearch domain in
-    // If you want to enable a VPC, uncomment this part
-    // const vpc = new ec2.Vpc(this, 'Vpc', {
-    //   ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
-    // });
+    const enableVpc = props?.enableVpc?.toLowerCase() === 'true';
+
+    // VPC to place the OpenSearch domain in (only if enableVpc is true)
+    const vpc = enableVpc ? new ec2.Vpc(this, 'Vpc', {
+      ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
+    }) : undefined;
 
     // Step 1: Create IAM Role for Dashboard Lambda FIRST
     // This role ARN will be used in OpenSearch UI AppConfigs for admin access
@@ -34,9 +36,6 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       description: 'Role for automated dashboard setup - creates workspaces and imports dashboards',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-        // Allow this role to be executed within a lambda in a VPC
-        // If you want to enable a VPC, uncomment this part
-        // iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaVPCAccessExecutionRole')
       ],
       inlinePolicies: {
         OpenSearchAccess: new iam.PolicyDocument({
@@ -60,18 +59,22 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       }
     });
 
+    // Allow this role to be executed within a lambda in a VPC
+    if (vpc) {
+      dashboardRole.addManagedPolicy( iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaVPCAccessExecutionRole'));
+    }
+
     // Create OpenSearch Security Group
-    // If you want to enable a VPC, uncomment this part
-    // const openSearchSecurityGroup = new ec2.SecurityGroup(this, 'OpenSearchSecurityGroup', {
-    //   allowAllOutbound: true,
-    //   description: 'Security Group for OpenSearch',
-    //   vpc: vpc,
-    // });
-    // openSearchSecurityGroup.addIngressRule(
-    //   openSearchSecurityGroup,
-    //   ec2.Port.tcp(443),
-    //   'Allow inbound HTTPS traffic from itself',
-    // );
+    const openSearchSecurityGroup = vpc ? new ec2.SecurityGroup(this, 'OpenSearchSecurityGroup', {
+      allowAllOutbound: true,
+      description: 'Security Group for OpenSearch',
+      vpc: vpc,
+    }) : undefined;
+    openSearchSecurityGroup?.addIngressRule(
+      openSearchSecurityGroup,
+      ec2.Port.tcp(443),
+      'Allow inbound HTTPS traffic from itself',
+    );
 
     // Step 2: Create OpenSearch Domain
 
@@ -117,41 +120,63 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       ],
       
       // VPC configuration
-      // If you want to enable a VPC, uncomment this part
-      // vpc: vpc,
-      // vpcSubnets: [
-      //   {
-      //     subnets: [vpc.privateSubnets[0]], // Explicitly select only the first private subnet
-      //   },
-      // ],
-      // securityGroups: [openSearchSecurityGroup],
+      ...(vpc && openSearchSecurityGroup && {
+        vpc: vpc,
+        vpcSubnets: [
+          {
+            subnets: [vpc.privateSubnets[0]], // Explicitly select only the first private subnet
+          },
+        ],
+        securityGroups: [openSearchSecurityGroup],
+      }),
       
       removalPolicy: cdk.RemovalPolicy.DESTROY // For demo purposes only
     });
 
     // Authorize OpenSearch UI service for VPC endpoint access
-    // If you want to enable a VPC, uncomment this part
-    // const authorizeOpenSearchUIVpcAccess = new cr.AwsCustomResource(this, 'AuthorizeOpenSearchUIVpcAccess', {
-    //   onUpdate: {
-    //     service: 'OpenSearch',
-    //     action: 'authorizeVpcEndpointAccess',
-    //     parameters: {
-    //       DomainName: opensearchDomain.domainName,
-    //       Service: 'application.opensearchservice.amazonaws.com',
-    //     },
-    //     physicalResourceId: cr.PhysicalResourceId.of(`${opensearchDomain.domainName}-VpcEndpointAccess`),
-    //   },
-    //   policy: cr.AwsCustomResourcePolicy.fromStatements([
-    //     new iam.PolicyStatement({
-    //       actions: ['es:AuthorizeVpcEndpointAccess'],
-    //       resources: [opensearchDomain.domainArn],
-    //     }),
-    //   ]),
-    // });
+    if (vpc) {
+      const authorizeOpenSearchUIVpcAccess = new cr.AwsCustomResource(this, 'AuthorizeOpenSearchUIVpcAccess', {
+        onUpdate: {
+          service: 'OpenSearch',
+          action: 'authorizeVpcEndpointAccess',
+          parameters: {
+            DomainName: opensearchDomain.domainName,
+            Service: 'application.opensearchservice.amazonaws.com',
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(`${opensearchDomain.domainName}-VpcEndpointAccess`),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromStatements([
+          new iam.PolicyStatement({
+            actions: ['es:AuthorizeVpcEndpointAccess'],
+            resources: [opensearchDomain.domainArn],
+          }),
+        ]),
+      });
 
-    // Ensure domain is created before the custom resource
-    // If you want to enable a VPC, uncomment this part
-    // authorizeOpenSearchUIVpcAccess.node.addDependency(opensearchDomain);
+      // Ensure domain is created before the custom resource
+      authorizeOpenSearchUIVpcAccess.node.addDependency(opensearchDomain);
+    }
+
+    // Wait for domain to be ready
+    // This avoids a race condition that would cause the error "DataSource data-source-demo is not ready"
+    const domainReadyWaiter = new cr.AwsCustomResource(this, 'DomainReadyWaiter', {
+      onUpdate: {
+        service: 'OpenSearch',
+        action: 'describeDomainHealth',
+        parameters: {
+          DomainName: opensearchDomain.domainName,
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`${opensearchDomain.domainName}-ready`),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ['es:DescribeDomainHealth'],
+          resources: [opensearchDomain.domainArn],
+        }),
+      ]),
+    });
+    
+    domainReadyWaiter.node.addDependency(opensearchDomain);
 
     // Step 3: Create OpenSearch UI Application
     // IMPORTANT: AppConfigs uses the Lambda role ARN for admin access
@@ -177,8 +202,8 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       name: appName
     });
 
-    // Ensure domain is created before UI application
-    openSearchUI.node.addDependency(opensearchDomain);
+    // Wait for domain to be ready before creating UI application
+    openSearchUI.node.addDependency(domainReadyWaiter);
 
     // Step 4: Create Lambda Function for Dashboard Setup
     const dashboardFn = new lambda.Function(this, 'DashboardSetup', {
@@ -195,9 +220,11 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       }),
       timeout: cdk.Duration.minutes(5),
       role: dashboardRole,
-      // If you want to enable a VPC, uncomment this part
-      // vpc: vpc,
-      // securityGroups: [openSearchSecurityGroup]
+      // Place the Lambda in a VPC
+      ...(vpc && openSearchSecurityGroup && { 
+        vpc: vpc, 
+        securityGroups: [openSearchSecurityGroup] 
+      }),
     });
 
     // Step 5: Create Custom Resource

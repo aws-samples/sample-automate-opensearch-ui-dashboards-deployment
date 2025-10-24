@@ -77,18 +77,24 @@ To check if already bootstrapped:
 aws cloudformation describe-stacks --stack-name CDKToolkit
 ```
 
-### 3. Enable a VPC (Optional)
-
-In the event you want to enable the deployment of an OpenSearch Domain within a VPC and link 
-the OpenSearch UI Application to it, uncomment the areas in the infrastructure code marked
-as "If you want to enable a VPC, uncomment this part".
-
-### 4. Configure Your Deployment (Optional)
+### 3. Configure Your Deployment (Optional)
 
 The stack uses a default admin user ARN. To specify your own:
 
 ```bash
 npx cdk deploy -c masterUserArn=arn:aws:iam::123456789012:role/YourAdminRole
+```
+
+The stack also has the infrastructure to deploy the OpenSearch Domain in a VPC. To enable it:
+
+```bash
+npx cdk deploy -c enableVpc=true
+```
+
+To specify your own admin user ARN and enable a VPC:
+
+```bash
+npx cdk deploy -c masterUserArn=arn:aws:iam::123456789012:role/YourAdminRole -c enableVpc=true
 ```
 
 To preview what will be deployed:
@@ -98,7 +104,7 @@ npx cdk diff   # View resource changes
 npx cdk list   # List available stacks
 ```
 
-### 5. Deploy the Stack
+### 4. Deploy the Stack
 
 Deploy the stack (takes approximately 20-25 minutes):
 
