@@ -85,6 +85,18 @@ The stack uses a default admin user ARN. To specify your own:
 npx cdk deploy -c masterUserArn=arn:aws:iam::123456789012:role/YourAdminRole
 ```
 
+The stack also has the infrastructure to deploy the OpenSearch Domain in a VPC. To enable it:
+
+```bash
+npx cdk deploy -c enableVpc=true
+```
+
+To specify your own admin user ARN and enable a VPC:
+
+```bash
+npx cdk deploy -c masterUserArn=arn:aws:iam::123456789012:role/YourAdminRole -c enableVpc=true
+```
+
 To preview what will be deployed:
 ```bash
 npx cdk synth  # View CloudFormation template

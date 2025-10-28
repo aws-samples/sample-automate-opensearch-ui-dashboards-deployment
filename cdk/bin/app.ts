@@ -10,5 +10,7 @@ new OpenSearchDashboardStack(app, 'OpenSearchDashboardAutomationStack', {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || 'us-west-2'
   },
-  description: 'Automated OpenSearch Dashboard Deployment with CDK'
+  description: 'Automated OpenSearch Dashboard Deployment with CDK',
+  masterUserArn: app.node.tryGetContext('masterUserArn'),
+  enableVpc: app.node.tryGetContext('enableVpc')
 });
