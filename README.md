@@ -14,7 +14,11 @@ The solution automatically:
 ### What Gets Created
 
 - **OpenSearch Domain**: Single-node r6g.large.search instance with OpenSearch 2.11
-- **OpenSearch UI Application**: Managed UI for OpenSearch with IAM-based authentication
+  - Domain Name: `data-source-demo`
+- **OpenSearch UI Application**: Managed UI for OpenSearch with flexible authentication (IAM or IAM + Identity Center)
+  - Application Name: `app-demo`
+- **IAM Identity Center Role** (if IDC enabled): Role for Identity Center authentication
+  - Role Name: `opensearch-ui-idc-role`
 - **Lambda Function**: Python 3.11 function for automated workspace and dashboard setup
 - **Sample Dashboard**: Pie chart visualization showing HTTP status code distribution from generated API metrics
 
@@ -77,34 +81,62 @@ To check if already bootstrapped:
 aws cloudformation describe-stacks --stack-name CDKToolkit
 ```
 
-### 3. Configure Your Deployment (Optional)
+### 3. Preview Deployment (Optional)
 
-The stack uses a default admin user ARN. To specify your own:
+Before deploying, you can preview what will be created:
 
-```bash
-npx cdk deploy -c masterUserArn=arn:aws:iam::123456789012:role/YourAdminRole
-```
-
-The stack also has the infrastructure to deploy the OpenSearch Domain in a VPC. To enable it:
-
-```bash
-npx cdk deploy -c enableVpc=true
-```
-
-To specify your own admin user ARN and enable a VPC:
-
-```bash
-npx cdk deploy -c masterUserArn=arn:aws:iam::123456789012:role/YourAdminRole -c enableVpc=true
-```
-
-To preview what will be deployed:
 ```bash
 npx cdk synth  # View CloudFormation template
 npx cdk diff   # View resource changes
 npx cdk list   # List available stacks
 ```
 
-### 4. Deploy the Stack
+### 4. Configure Authentication (Optional)
+
+The stack supports flexible authentication modes:
+
+| Authentication Mode | Use Case | Users |
+|-------------------|----------|-------|
+| **IAM Only** (default) | Automation, programmatic access | IAM users/roles |
+| **Hybrid (IAM + IDC)** | Enterprise SSO + automation | IAM users/roles + Identity Center users |
+
+#### Option A: Deploy with IAM Authentication (Default)
+
+No additional configuration needed. The stack uses IAM authentication by default.
+
+```bash
+npx cdk deploy
+```
+
+#### Option B: Enable IAM Identity Center (IDC) for Single Sign-On
+
+**Prerequisites:**
+
+1. **Enable IAM Identity Center** in your AWS account:
+   - Go to IAM Identity Center console
+   - Click "Enable" if not already enabled
+   - Choose organization or account instance
+
+2. **Get your Identity Center Instance ARN**:
+   ```bash
+   aws sso-admin list-instances
+   ```
+   
+   Copy the `InstanceArn` from the output (format: `arn:aws:sso:::instance/ssoins-xxxxxxxxxx`)
+
+**Deploy with IDC:**
+
+```bash
+npx cdk deploy -c idcInstanceArn=arn:aws:sso:::instance/ssoins-xxxxxxxxxx
+```
+
+**What gets created:** IAM role for Identity Center access, enabling hybrid IAM + IDC authentication
+
+**Additional stack outputs:**
+- `IDCEnabled`: Authentication mode status
+- `IDCRoleArn`: IAM role ARN for Identity Center access
+
+### 5. Deploy the Stack
 
 Deploy the stack (takes approximately 20-25 minutes):
 

@@ -9,22 +9,19 @@ import { Construct } from 'constructs';
 interface OpenSearchDashboardStackProps extends cdk.StackProps {
   masterUserArn?: string;
   enableVpc?: string;
+  idcInstanceArn?: string;
 }
 
 export class OpenSearchDashboardStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: OpenSearchDashboardStackProps) {
     super(scope, id, props);
 
-    // Use provided master user ARN or default to current execution role
-    const masterUserArn = props?.masterUserArn || 
-      `arn:aws:iam::<your account>:role/demo`;
-
-    // Domain name used in multiple places
-    const domainName = `data-source-demo`;
-
+    const masterUserArn = props?.masterUserArn || `arn:aws:iam::<your account>:role/demo`;
+    const domainName = 'data-source-demo';
+    const appName = 'app-demo';
     const enableVpc = props?.enableVpc?.toLowerCase() === 'true';
 
-    // VPC to place the OpenSearch domain in (only if enableVpc is true)
+    // Create VPC if enabled
     const vpc = enableVpc ? new ec2.Vpc(this, 'Vpc', {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
     }) : undefined;
@@ -62,6 +59,57 @@ export class OpenSearchDashboardStack extends cdk.Stack {
     // Allow this role to be executed within a lambda in a VPC
     if (vpc) {
       dashboardRole.addManagedPolicy( iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaVPCAccessExecutionRole'));
+    }
+
+    // Create IAM Role for Identity Center Application Access (if IDC is enabled)
+    const idcInstanceArn = props?.idcInstanceArn;
+    const idcAccessRole = idcInstanceArn ? new iam.Role(this, 'IDCAccessRole', {
+      roleName: `opensearch-ui-idc-role`,
+      assumedBy: new iam.ServicePrincipal('application.opensearchservice.amazonaws.com'),
+      description: 'Role for Identity Center to access OpenSearch',
+      inlinePolicies: {
+        IdentityStoreAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: [
+                'identitystore:DescribeUser',
+                'identitystore:ListGroupMembershipsForMember',
+                'identitystore:DescribeGroup'
+              ],
+              resources: ['*'],
+              conditions: {
+                'ForAnyValue:StringEquals': {
+                  'aws:CalledViaLast': 'es.amazonaws.com'
+                }
+              }
+            }),
+            new iam.PolicyStatement({
+              actions: ['es:ESHttp*'],
+              resources: ['*']
+            }),
+            new iam.PolicyStatement({
+              actions: ['aoss:APIAccessAll'],
+              resources: ['*']
+            })
+          ]
+        })
+      }
+    }) : undefined;
+
+    // Override trust policy to include both sts:AssumeRole and sts:SetContext
+    if (idcAccessRole) {
+      const cfnRole = idcAccessRole.node.defaultChild as iam.CfnRole;
+      cfnRole.assumeRolePolicyDocument = {
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: {
+              Service: 'application.opensearchservice.amazonaws.com'
+            },
+            Action: ['sts:AssumeRole', 'sts:SetContext']
+          }
+        ]
+      };
     }
 
     // Create OpenSearch Security Group
@@ -180,7 +228,6 @@ export class OpenSearchDashboardStack extends cdk.Stack {
 
     // Step 3: Create OpenSearch UI Application
     // IMPORTANT: AppConfigs uses the Lambda role ARN for admin access
-    const appName = `app-demo`;
     const openSearchUI = new opensearch.CfnApplication(this, 'OpenSearchUI', {
       appConfigs: [
         {
@@ -196,7 +243,12 @@ export class OpenSearchDashboardStack extends cdk.Stack {
         dataSourceArn: opensearchDomain.domainArn,
         dataSourceDescription: 'Primary OpenSearch Domain'
       }],
-      iamIdentityCenterOptions: {
+      // Enable IDC if instanceArn is provided (supports hybrid IAM + IDC authentication)
+      iamIdentityCenterOptions: idcInstanceArn && idcAccessRole ? {
+        enabled: true,
+        iamIdentityCenterInstanceArn: idcInstanceArn,
+        iamRoleForIdentityCenterApplicationArn: idcAccessRole.roleArn
+      } : {
         enabled: false
       },
       name: appName
@@ -247,7 +299,7 @@ export class OpenSearchDashboardStack extends cdk.Stack {
         domainEndpoint: opensearchDomain.domainEndpoint,
         workspaceName: 'workspace-demo',
         region: cdk.Stack.of(this).region,
-        // version: '8', for develping, increase version to force Custom Resource updates
+        // version: '9', // for develping, increase version to force Custom Resource updates
       }
     });
 
@@ -269,5 +321,17 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       value: dashboardSetup.getAttString('WorkspaceId'),
       description: 'Created Workspace ID'
     });
+
+    new cdk.CfnOutput(this, 'IDCEnabled', {
+      value: idcInstanceArn ? 'Yes (Hybrid IAM + IDC)' : 'No (IAM only)',
+      description: 'Identity Center Authentication Status'
+    });
+
+    if (idcInstanceArn && idcAccessRole) {
+      new cdk.CfnOutput(this, 'IDCRoleArn', {
+        value: idcAccessRole.roleArn,
+        description: 'IAM Role ARN for Identity Center Application Access'
+      });
+    }
   }
 }
