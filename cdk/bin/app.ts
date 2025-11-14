@@ -12,5 +12,6 @@ new OpenSearchDashboardStack(app, 'OpenSearchDashboardAutomationStack', {
   },
   description: 'Automated OpenSearch Dashboard Deployment with CDK',
   masterUserArn: app.node.tryGetContext('masterUserArn'),
-  enableVpc: app.node.tryGetContext('enableVpc')
+  enableVpc: app.node.tryGetContext('enableVpc'),
+  idcInstanceArn: app.node.tryGetContext('idcInstanceArn')
 });
