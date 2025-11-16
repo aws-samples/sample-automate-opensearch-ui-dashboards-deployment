@@ -232,7 +232,7 @@ export class OpenSearchDashboardStack extends cdk.Stack {
       appConfigs: [
         {
           key: 'opensearchDashboards.dashboardAdmin.users',
-          value: `["${masterUserArn}"]` // Human users
+          value: `["*"]` // Configuring global admin access for demo 
         },
         {
           key: 'opensearchDashboards.dashboardAdmin.groups',
