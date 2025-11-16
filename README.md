@@ -136,6 +136,22 @@ npx cdk deploy -c idcInstanceArn=arn:aws:sso:::instance/ssoins-xxxxxxxxxx
 - `IDCEnabled`: Authentication mode status
 - `IDCRoleArn`: IAM role ARN for Identity Center access
 
+**Important: Post-Deployment IDC Configuration**
+
+This stack only sets up the IAM Identity Center (IDC) integration infrastructure. To enable user access through IDC, you must complete these additional steps:
+
+1. **Configure IDC Users and Groups** (in AWS Console -> IDC):
+   - Go to the IAM Identity Center console
+   - Create or manage users and groups as needed
+   - Assign users to appropriate groups
+
+2. **Add Users to OpenSearch UI** (in AWS Console -> OpenSearch UI):
+   - Navigate to the OpenSearch UI console
+   - Go to your application (`app-demo`)
+   - In the Access management section, add the IDC users or groups
+
+Without completing these steps, IDC users will not be able to access the OpenSearch UI application, even though the IDC integration is enabled.
+
 ### 5. Deploy the Stack
 
 Deploy the stack (takes approximately 20-25 minutes):
@@ -154,6 +170,8 @@ The stack outputs will include:
 - **OpenSearchUIEndpoint**: URL to access the OpenSearch UI
 - **OpenSearchDomainEndpoint**: OpenSearch domain endpoint for API access
 - **WorkspaceId**: The created workspace ID
+- **IDCEnabled**: Shows whether Identity Center authentication is enabled (Yes/No)
+- **IDCRoleArn**: IAM role ARN for Identity Center access (only shown when IDC is enabled)
 
 ## Verification and Testing
 
